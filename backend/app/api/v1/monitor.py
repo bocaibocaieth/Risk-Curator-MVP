@@ -2,13 +2,17 @@
 
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models import Asset
+from app.exceptions import NotFoundError, ValidationError
+from app.dependencies import get_price_service, get_tvl_service, get_monitor_service
+from app.services.price_service import PriceService, TVLService
+from app.services.monitor_service import MonitorService
 
 router = APIRouter()
 
@@ -46,6 +50,7 @@ class MonitorCheckResponse(BaseModel):
 async def get_asset_price(
     asset_id: int,
     db: AsyncSession = Depends(get_db),
+    price_service: PriceService = Depends(get_price_service),
 ):
     """Get current price for a specific asset."""
     result = await db.execute(
@@ -54,12 +59,8 @@ async def get_asset_price(
     asset = result.scalar_one_or_none()
 
     if not asset:
-        raise HTTPException(status_code=404, detail="Asset not found")
+        raise NotFoundError("Asset", asset_id)
 
-    # Import here to avoid circular imports
-    from app.services.price_service import PriceService
-
-    price_service = PriceService()
     price = await price_service.get_price(
         coingecko_id=asset.coingecko_id,
         chain=asset.chain,
@@ -79,21 +80,18 @@ async def get_asset_price(
 async def get_prices_batch(
     asset_ids: str = Query(..., description="Comma-separated asset IDs"),
     db: AsyncSession = Depends(get_db),
+    price_service: PriceService = Depends(get_price_service),
 ):
     """Get prices for multiple assets."""
     try:
         ids = [int(id.strip()) for id in asset_ids.split(",")]
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid asset IDs format")
+        raise ValidationError("Invalid asset IDs format", field="asset_ids")
 
     result = await db.execute(
         select(Asset).where(Asset.id.in_(ids))
     )
     assets = result.scalars().all()
-
-    from app.services.price_service import PriceService
-
-    price_service = PriceService()
 
     # Get prices for assets with coingecko_id
     coingecko_ids = [a.coingecko_id for a in assets if a.coingecko_id]
@@ -128,11 +126,9 @@ async def get_prices_batch(
 @router.get("/tvl/{protocol_slug}", response_model=TVLResponse)
 async def get_protocol_tvl(
     protocol_slug: str,
+    tvl_service: TVLService = Depends(get_tvl_service),
 ):
     """Get TVL for a protocol from DeFiLlama."""
-    from app.services.price_service import TVLService
-
-    tvl_service = TVLService()
     data = await tvl_service.get_protocol_tvl(protocol_slug)
 
     if data is None:
@@ -153,11 +149,9 @@ async def get_protocol_tvl(
 @router.post("/check", response_model=MonitorCheckResponse)
 async def trigger_monitoring_check(
     db: AsyncSession = Depends(get_db),
+    monitor: MonitorService = Depends(get_monitor_service),
 ):
     """Manually trigger a monitoring check cycle."""
-    from app.services.monitor_service import MonitorService
-
-    monitor = MonitorService(db)
     alerts = await monitor.run_monitoring_cycle()
 
     return MonitorCheckResponse(
@@ -169,7 +163,3 @@ async def trigger_monitoring_check(
         alerts_triggered=len(alerts),
         messages=alerts,
     )
-
-
-# Import func for count query
-from sqlalchemy import func

@@ -2,10 +2,10 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload
 
 from app.database import get_db
 from app.models import Asset, AssetRating
@@ -15,6 +15,7 @@ from app.schemas.asset import (
     AssetResponse,
     AssetListResponse,
 )
+from app.exceptions import NotFoundError, ConflictError
 
 router = APIRouter()
 
@@ -87,10 +88,7 @@ async def create_asset(
         )
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(
-            status_code=400,
-            detail=f"Asset {data.symbol} on {data.chain} already exists",
-        )
+        raise ConflictError(f"Asset {data.symbol} on {data.chain} already exists")
 
     asset = Asset(**data.model_dump())
     db.add(asset)
@@ -114,7 +112,7 @@ async def get_asset(
     asset = result.scalar_one_or_none()
 
     if not asset:
-        raise HTTPException(status_code=404, detail="Asset not found")
+        raise NotFoundError("Asset", asset_id)
 
     response = AssetResponse.model_validate(asset)
     if asset.rating:
@@ -137,7 +135,7 @@ async def update_asset(
     asset = result.scalar_one_or_none()
 
     if not asset:
-        raise HTTPException(status_code=404, detail="Asset not found")
+        raise NotFoundError("Asset", asset_id)
 
     # Update fields
     update_data = data.model_dump(exclude_unset=True)
@@ -162,6 +160,6 @@ async def delete_asset(
     asset = result.scalar_one_or_none()
 
     if not asset:
-        raise HTTPException(status_code=404, detail="Asset not found")
+        raise NotFoundError("Asset", asset_id)
 
     await db.delete(asset)

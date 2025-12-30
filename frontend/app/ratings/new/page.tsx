@@ -107,6 +107,7 @@ export default function NewRatingPage() {
   const router = useRouter()
   const [step, setStep] = useState(1)
   const [selectedAssetId, setSelectedAssetId] = useState<number | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [scores, setScores] = useState({
     social: 3,
     decentralization: 3,
@@ -128,6 +129,9 @@ export default function NewRatingPage() {
     mutationFn: ratingsApi.create,
     onSuccess: () => {
       router.push('/ratings')
+    },
+    onError: (err: Error) => {
+      setError(err.message || 'Failed to create rating')
     },
   })
 
@@ -188,6 +192,16 @@ export default function NewRatingPage() {
           <p className="text-muted-foreground">Create a new asset rating</p>
         </div>
       </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="rounded-md bg-red-50 p-4 text-red-700 border border-red-200">
+          <p className="text-sm">{error}</p>
+          <button onClick={() => setError(null)} className="mt-2 text-xs underline hover:no-underline">
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Progress Steps */}
       <div className="flex items-center gap-2">

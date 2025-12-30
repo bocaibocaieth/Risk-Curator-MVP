@@ -2,10 +2,10 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload
 
 from app.database import get_db
 from app.models import Asset, AssetRating
@@ -16,6 +16,7 @@ from app.schemas.rating import (
     RatingListResponse,
 )
 from app.services.rating_calculator import RatingCalculator
+from app.exceptions import NotFoundError, ConflictError
 
 router = APIRouter()
 calculator = RatingCalculator()
@@ -78,17 +79,14 @@ async def create_asset_rating(
     )
     asset = result.scalar_one_or_none()
     if not asset:
-        raise HTTPException(status_code=404, detail="Asset not found")
+        raise NotFoundError("Asset", data.asset_id)
 
     # Check if rating already exists
     existing = await db.execute(
         select(AssetRating).where(AssetRating.asset_id == data.asset_id)
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(
-            status_code=400,
-            detail="Rating already exists for this asset. Use PUT to update.",
-        )
+        raise ConflictError("Rating already exists for this asset. Use PUT to update.")
 
     # Compute ratings
     computed = calculator.compute_full_asset_rating(
@@ -149,7 +147,7 @@ async def get_asset_rating(
     rating = result.scalar_one_or_none()
 
     if not rating:
-        raise HTTPException(status_code=404, detail="Rating not found for this asset")
+        raise NotFoundError("AssetRating", asset_id)
 
     response = AssetRatingResponse.model_validate(rating)
     if rating.asset:
@@ -174,7 +172,7 @@ async def update_asset_rating(
     rating = result.scalar_one_or_none()
 
     if not rating:
-        raise HTTPException(status_code=404, detail="Rating not found for this asset")
+        raise NotFoundError("AssetRating", asset_id)
 
     # Update issuer scores if provided
     if data.issuer:
@@ -237,6 +235,6 @@ async def delete_asset_rating(
     rating = result.scalar_one_or_none()
 
     if not rating:
-        raise HTTPException(status_code=404, detail="Rating not found for this asset")
+        raise NotFoundError("AssetRating", asset_id)
 
     await db.delete(rating)
