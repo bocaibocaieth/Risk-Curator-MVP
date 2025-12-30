@@ -93,13 +93,20 @@ app.add_middleware(RequestLoggingMiddleware)
 # API key authentication middleware (optional, enabled via API_KEY env var)
 app.add_middleware(APIKeyAuthMiddleware)
 
-# CORS middleware
+# CORS middleware with explicit allowed headers for security
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=[
+        "Accept",
+        "Accept-Language",
+        "Content-Type",
+        "Authorization",
+        settings.api_key_header,  # X-API-Key
+        "X-Request-ID",
+    ],
 )
 
 # Include API routes

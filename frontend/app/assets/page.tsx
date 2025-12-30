@@ -46,16 +46,30 @@ export default function AssetsPage() {
     },
   })
 
+  // Validate Ethereum contract address format
+  const isValidContractAddress = (address: string): boolean => {
+    if (!address) return true // Empty is allowed
+    return /^0x[0-9a-fA-F]{40}$/.test(address)
+  }
+
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     const formData = new FormData(e.currentTarget)
+    const contractAddress = (formData.get('contract_address') as string) || ''
+
+    // Validate contract address format
+    if (contractAddress && !isValidContractAddress(contractAddress)) {
+      setError('Invalid contract address format. Must be a valid Ethereum address (0x...)')
+      return
+    }
+
     const data = {
       symbol: formData.get('symbol') as string,
       name: formData.get('name') as string,
       asset_type: formData.get('asset_type') as string || null,
       chain: formData.get('chain') as string || 'ethereum',
       coingecko_id: formData.get('coingecko_id') as string || null,
-      contract_address: formData.get('contract_address') as string || null,
+      contract_address: contractAddress || null,
     }
     createMutation.mutate(data)
   }
@@ -99,6 +113,7 @@ export default function AssetsPage() {
                 <input
                   name="symbol"
                   required
+                  maxLength={20}
                   placeholder="e.g., USDC"
                   className="w-full rounded-md border px-3 py-2"
                 />
@@ -147,6 +162,8 @@ export default function AssetsPage() {
                 <input
                   name="contract_address"
                   placeholder="0x..."
+                  pattern="^0x[0-9a-fA-F]{40}$"
+                  title="Must be a valid Ethereum address (0x followed by 40 hex characters)"
                   className="w-full rounded-md border px-3 py-2"
                 />
               </div>

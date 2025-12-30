@@ -1,9 +1,10 @@
 """Alert schemas."""
 
 from datetime import datetime
+import re
 from typing import Optional, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 AlertType = Literal["price_deviation", "depeg", "tvl_drop", "liquidity"]
@@ -42,6 +43,14 @@ class AlertConfigCreate(BaseModel):
         ge=1,
         description="Cooldown period in minutes to avoid repeated alerts",
     )
+
+    @field_validator("telegram_chat_id")
+    @classmethod
+    def validate_telegram_chat_id(cls, v: str) -> str:
+        """Validate Telegram chat ID format (numeric, optionally prefixed with -)."""
+        if not re.match(r"^-?\d+$", v):
+            raise ValueError("Telegram chat ID must be a numeric string (e.g., '123456789' or '-100123456789')")
+        return v
 
 
 class AlertConfigUpdate(BaseModel):

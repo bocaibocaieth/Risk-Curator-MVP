@@ -76,7 +76,14 @@ api.interceptors.response.use(
     if (isRetryable(error) && config._retryCount < MAX_RETRIES) {
       config._retryCount++
       const delay = RETRY_DELAY_MS * Math.pow(2, config._retryCount - 1) // Exponential backoff
-      console.warn(`Retrying request (${config._retryCount}/${MAX_RETRIES}) after ${delay}ms`)
+      console.warn(`Retrying request`, {
+        attempt: config._retryCount,
+        maxRetries: MAX_RETRIES,
+        delay,
+        url: config.url,
+        method: config.method,
+        status: error.response?.status ?? 'network_error',
+      })
       await sleep(delay)
       return api(config)
     }

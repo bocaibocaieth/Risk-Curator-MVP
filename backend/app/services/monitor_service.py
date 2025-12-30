@@ -5,8 +5,9 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models import Asset, PriceHistory, AlertConfig, AlertHistory
 from app.services.price_service import PriceService
@@ -34,18 +35,18 @@ class MonitorService:
         if asset.asset_type == "stablecoin":
             base_price = Decimal("1.0")
         else:
-            # Use 24h average as baseline
-            stmt = select(PriceHistory).where(
+            # Use 24h average as baseline (using SQL AVG for efficiency)
+            stmt = select(func.avg(PriceHistory.price_usd)).where(
                 PriceHistory.asset_id == asset.id,
                 PriceHistory.recorded_at >= datetime.utcnow() - timedelta(hours=24),
             )
             result = await self.db.execute(stmt)
-            history = result.scalars().all()
+            avg_price = result.scalar()
 
-            if not history:
+            if avg_price is None:
                 return None
 
-            base_price = sum(h.price_usd for h in history) / len(history)
+            base_price = Decimal(str(avg_price))
 
         if base_price == 0:
             return None
@@ -94,8 +95,12 @@ class MonitorService:
         alerts_triggered: List[str] = []
 
         try:
-            # Get all active assets
-            stmt = select(Asset).where(Asset.is_active == True)
+            # Get all active assets with alert configs preloaded (avoid N+1 queries)
+            stmt = (
+                select(Asset)
+                .where(Asset.is_active == True)
+                .options(selectinload(Asset.alert_configs))
+            )
             result = await self.db.execute(stmt)
             assets = result.scalars().all()
         except Exception as e:
@@ -123,13 +128,8 @@ class MonitorService:
                 )
                 self.db.add(price_record)
 
-                # Get alert configs for this asset
-                stmt = select(AlertConfig).where(
-                    AlertConfig.asset_id == asset.id,
-                    AlertConfig.is_active == True,
-                )
-                result = await self.db.execute(stmt)
-                configs = result.scalars().all()
+                # Use preloaded alert configs (avoiding N+1 query)
+                configs = [c for c in asset.alert_configs if c.is_active]
 
                 for config in configs:
                     try:
@@ -174,17 +174,49 @@ class MonitorService:
                             config.last_triggered_at = datetime.utcnow()
                             alerts_triggered.append(alert_message)
                     except Exception as e:
-                        logger.error(f"Error processing alert config {config.id} for {asset.symbol}: {e}")
+                        logger.error(
+                            f"Error processing alert config",
+                            extra={
+                                "config_id": config.id,
+                                "config_name": config.name,
+                                "alert_type": config.alert_type,
+                                "asset_symbol": asset.symbol,
+                                "error": str(e),
+                            },
+                        )
                         continue
 
             except Exception as e:
-                logger.error(f"Error monitoring asset {asset.symbol}: {e}")
+                logger.error(
+                    f"Error monitoring asset",
+                    extra={
+                        "asset_id": asset.id,
+                        "asset_symbol": asset.symbol,
+                        "chain": asset.chain,
+                        "error": str(e),
+                    },
+                )
                 continue
 
-        try:
-            await self.db.commit()
-        except Exception as e:
-            logger.error(f"Failed to commit monitoring changes: {e}")
-            await self.db.rollback()
+        # Commit all changes with proper error tracking
+        if alerts_triggered:
+            try:
+                await self.db.commit()
+                logger.info(f"Monitoring cycle completed: {len(alerts_triggered)} alerts triggered")
+            except Exception as e:
+                logger.error(
+                    f"Failed to commit monitoring changes",
+                    extra={"alerts_count": len(alerts_triggered), "error": str(e)},
+                )
+                await self.db.rollback()
+                # Clear alerts since they weren't persisted
+                alerts_triggered.clear()
+        else:
+            # Still commit price history even if no alerts
+            try:
+                await self.db.commit()
+            except Exception as e:
+                logger.error(f"Failed to commit price history: {e}")
+                await self.db.rollback()
 
         return alerts_triggered

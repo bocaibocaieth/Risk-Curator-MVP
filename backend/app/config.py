@@ -1,7 +1,12 @@
 """Application configuration using Pydantic Settings."""
 
+import logging
+import warnings
 from typing import List, Literal
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -16,8 +21,8 @@ class Settings(BaseSettings):
     # Environment
     environment: Literal["development", "staging", "production"] = "development"
 
-    # Database
-    database_url: str = "postgresql+asyncpg://user:password@localhost:5432/risk_monitor"
+    # Database - no default in production
+    database_url: str = "sqlite+aiosqlite:///./risk_monitor.db"
 
     # Redis (optional)
     redis_url: str = "redis://localhost:6379"
@@ -53,6 +58,35 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         """Check if running in production environment."""
         return self.environment == "production"
+
+    @model_validator(mode="after")
+    def validate_production_settings(self) -> "Settings":
+        """Validate settings for production environment."""
+        if self.is_production:
+            # Warn if debug is enabled in production
+            if self.debug:
+                warnings.warn(
+                    "DEBUG mode is enabled in PRODUCTION environment! "
+                    "This is a security risk.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                logger.warning("DEBUG mode is enabled in PRODUCTION - this is a security risk")
+
+            # Warn if using SQLite in production
+            if "sqlite" in self.database_url.lower():
+                warnings.warn(
+                    "SQLite is not recommended for production use. "
+                    "Consider using PostgreSQL.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+
+            # Warn if no API key is set
+            if not self.api_key:
+                logger.warning("No API_KEY configured - API is open without authentication")
+
+        return self
 
 
 settings = Settings()

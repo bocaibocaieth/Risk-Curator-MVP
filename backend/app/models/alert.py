@@ -28,9 +28,11 @@ class AlertConfig(Base):
     )
     asset_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("assets.id", ondelete="SET NULL"),
+        index=True,  # Add index for faster filtering
     )
     protocol_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("protocols.id", ondelete="SET NULL"),
+        index=True,  # Add index for faster filtering
     )
 
     # Thresholds
@@ -76,6 +78,7 @@ class AlertHistory(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     alert_config_id: Mapped[int] = mapped_column(
         ForeignKey("alert_configs.id", ondelete="CASCADE"),
+        index=True,  # Add index for faster filtering
     )
     triggered_value: Mapped[Optional[Decimal]] = mapped_column(Numeric(20, 8))
     message: Mapped[Optional[str]] = mapped_column(Text)

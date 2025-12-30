@@ -1,6 +1,7 @@
 """Application middleware."""
 
 import logging
+import secrets
 import time
 from typing import Callable
 
@@ -39,9 +40,9 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         if request.url.path.startswith(("/docs", "/redoc", "/openapi")):
             return await call_next(request)
 
-        # Check API key
+        # Check API key using timing-safe comparison
         api_key = request.headers.get(settings.api_key_header)
-        if not api_key or api_key != settings.api_key:
+        if not api_key or not secrets.compare_digest(api_key, settings.api_key):
             return JSONResponse(
                 status_code=401,
                 content={
