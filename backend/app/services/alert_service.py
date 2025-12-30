@@ -1,10 +1,13 @@
 """Telegram alert service."""
 
+import logging
 import httpx
 from typing import Optional
 from datetime import datetime
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class TelegramService:
@@ -23,12 +26,12 @@ class TelegramService:
     ) -> bool:
         """Send a message via Telegram bot."""
         if not self.bot_token:
-            print("Telegram bot token not configured")
+            logger.warning("Telegram bot token not configured")
             return False
 
         target_chat_id = chat_id or self.default_chat_id
         if not target_chat_id:
-            print("No Telegram chat ID provided")
+            logger.warning("No Telegram chat ID provided")
             return False
 
         async with httpx.AsyncClient() as client:
@@ -45,7 +48,7 @@ class TelegramService:
                 response.raise_for_status()
                 return True
             except Exception as e:
-                print(f"Telegram send error: {e}")
+                logger.error(f"Telegram send error: {e}")
                 return False
 
     async def send_alert(

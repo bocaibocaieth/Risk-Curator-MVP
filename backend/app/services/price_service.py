@@ -1,11 +1,14 @@
 """Price and TVL data services."""
 
+import logging
 import httpx
 from typing import Optional, Dict, List
 from decimal import Decimal
 from datetime import datetime
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class PriceService:
@@ -57,7 +60,7 @@ class PriceService:
                     return price
                 return None
             except Exception as e:
-                print(f"CoinGecko error for {coingecko_id}: {e}")
+                logger.warning(f"CoinGecko error for {coingecko_id}: {e}")
                 return None
 
     async def get_price_defillama(
@@ -95,7 +98,7 @@ class PriceService:
                     return price
                 return None
             except Exception as e:
-                print(f"DeFiLlama error for {coin_id}: {e}")
+                logger.warning(f"DeFiLlama error for {coin_id}: {e}")
                 return None
 
     async def get_price(
@@ -160,7 +163,7 @@ class PriceService:
 
                 return result
             except Exception as e:
-                print(f"Batch price error: {e}")
+                logger.warning(f"Batch price error: {e}")
                 return result
 
 
@@ -182,7 +185,7 @@ class TVLService:
                 # Returns a number directly
                 return response.json()
             except Exception as e:
-                print(f"TVL error for {protocol_slug}: {e}")
+                logger.warning(f"TVL error for {protocol_slug}: {e}")
                 return None
 
     async def get_protocol_details(self, protocol_slug: str) -> Optional[Dict]:
@@ -196,5 +199,5 @@ class TVLService:
                 response.raise_for_status()
                 return response.json()
             except Exception as e:
-                print(f"Protocol details error for {protocol_slug}: {e}")
+                logger.warning(f"Protocol details error for {protocol_slug}: {e}")
                 return None

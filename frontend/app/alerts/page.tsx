@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Bell, Trash2, Play, History } from 'lucide-react'
+import { Plus, Bell, Trash2, Play, History, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { alertsApi, assetsApi } from '@/lib/api'
@@ -13,6 +13,8 @@ import type { AlertConfigCreate, AlertType } from '@/types'
 export default function AlertsPage() {
   const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
 
   const { data: configs, isLoading } = useQuery({
     queryKey: ['alertConfigs'],
@@ -29,6 +31,10 @@ export default function AlertsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['alertConfigs'] })
       setShowForm(false)
+      setError(null)
+    },
+    onError: (err: Error) => {
+      setError(err.message || 'Failed to create alert')
     },
   })
 
@@ -36,6 +42,12 @@ export default function AlertsPage() {
     mutationFn: alertsApi.deleteConfig,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['alertConfigs'] })
+      setDeletingId(null)
+      setError(null)
+    },
+    onError: (err: Error) => {
+      setError(err.message || 'Failed to delete alert')
+      setDeletingId(null)
     },
   })
 
@@ -45,6 +57,9 @@ export default function AlertsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['alertConfigs'] })
     },
+    onError: (err: Error) => {
+      setError(err.message || 'Failed to update alert status')
+    },
   })
 
   const testMutation = useMutation({
@@ -53,7 +68,7 @@ export default function AlertsPage() {
       alert('Test alert sent!')
     },
     onError: () => {
-      alert('Failed to send test alert')
+      setError('Failed to send test alert')
     },
   })
 
@@ -91,6 +106,19 @@ export default function AlertsPage() {
           </Button>
         </div>
       </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="rounded-md bg-red-50 p-4 text-red-700 border border-red-200">
+          <p className="text-sm">{error}</p>
+          <button
+            onClick={() => setError(null)}
+            className="mt-2 text-xs underline hover:no-underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Create Alert Form */}
       {showForm && (
@@ -242,13 +270,19 @@ export default function AlertsPage() {
                           <Button
                             variant="ghost"
                             size="icon"
+                            disabled={deletingId === config.id}
                             onClick={() => {
                               if (confirm('Delete this alert?')) {
+                                setDeletingId(config.id)
                                 deleteMutation.mutate(config.id)
                               }
                             }}
                           >
-                            <Trash2 className="h-4 w-4 text-red-500" />
+                            {deletingId === config.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4 text-red-500" />
+                            )}
                           </Button>
                         </div>
                       </td>

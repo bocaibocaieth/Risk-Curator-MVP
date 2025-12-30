@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Edit } from 'lucide-react'
+import { Plus, Trash2, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { RatingBadge, VaultEligibilityBadge } from '@/components/rating/RatingBadge'
@@ -13,6 +13,8 @@ export default function AssetsPage() {
   const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
 
   const { data: assets, isLoading } = useQuery({
     queryKey: ['assets'],
@@ -24,6 +26,10 @@ export default function AssetsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['assets'] })
       setShowForm(false)
+      setError(null)
+    },
+    onError: (err: Error) => {
+      setError(err.message || 'Failed to create asset')
     },
   })
 
@@ -31,6 +37,12 @@ export default function AssetsPage() {
     mutationFn: assetsApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['assets'] })
+      setDeletingId(null)
+      setError(null)
+    },
+    onError: (err: Error) => {
+      setError(err.message || 'Failed to delete asset')
+      setDeletingId(null)
     },
   })
 
@@ -60,6 +72,19 @@ export default function AssetsPage() {
           Add Asset
         </Button>
       </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="rounded-md bg-red-50 p-4 text-red-700 border border-red-200">
+          <p className="text-sm">{error}</p>
+          <button
+            onClick={() => setError(null)}
+            className="mt-2 text-xs underline hover:no-underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Add Asset Form */}
       {showForm && (
@@ -192,13 +217,19 @@ export default function AssetsPage() {
                         <Button
                           variant="ghost"
                           size="icon"
+                          disabled={deletingId === asset.id}
                           onClick={() => {
                             if (confirm('Delete this asset?')) {
+                              setDeletingId(asset.id)
                               deleteMutation.mutate(asset.id)
                             }
                           }}
                         >
-                          <Trash2 className="h-4 w-4 text-red-500" />
+                          {deletingId === asset.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          )}
                         </Button>
                       </td>
                     </tr>
