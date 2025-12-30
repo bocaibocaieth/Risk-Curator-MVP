@@ -1,4 +1,4 @@
-import axios from 'axios'
+import axios, { AxiosError, AxiosRequestConfig } from 'axios'
 import type {
   Asset,
   AssetListResponse,
@@ -11,13 +11,100 @@ import type {
 } from '@/types'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY || ''
 
+// Retry configuration
+const MAX_RETRIES = 3
+const RETRY_DELAY_MS = 1000
+
+// Custom error class for API errors
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public statusCode: number,
+    public errorCode?: string,
+    public details?: Record<string, unknown>
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
+// Sleep helper for retry delay
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+// Check if error is retryable
+const isRetryable = (error: AxiosError): boolean => {
+  // Retry on network errors or 5xx server errors
+  if (!error.response) return true // Network error
+  const status = error.response.status
+  return status >= 500 || status === 429 // Server error or rate limit
+}
+
+// Create axios instance with timeout
 const api = axios.create({
   baseURL: API_BASE_URL,
+  timeout: 15000, // 15 second timeout
   headers: {
     'Content-Type': 'application/json',
+    ...(API_KEY ? { 'X-API-Key': API_KEY } : {}),
   },
 })
+
+// Request interceptor for logging
+api.interceptors.request.use(
+  (config) => {
+    // Add timestamp for debugging
+    config.metadata = { startTime: new Date() }
+    return config
+  },
+  (error) => Promise.reject(error)
+)
+
+// Response interceptor for error handling
+api.interceptors.response.use(
+  (response) => response,
+  async (error: AxiosError) => {
+    const config = error.config as AxiosRequestConfig & { _retryCount?: number }
+
+    // Initialize retry count
+    if (!config._retryCount) {
+      config._retryCount = 0
+    }
+
+    // Check if we should retry
+    if (isRetryable(error) && config._retryCount < MAX_RETRIES) {
+      config._retryCount++
+      const delay = RETRY_DELAY_MS * Math.pow(2, config._retryCount - 1) // Exponential backoff
+      console.warn(`Retrying request (${config._retryCount}/${MAX_RETRIES}) after ${delay}ms`)
+      await sleep(delay)
+      return api(config)
+    }
+
+    // Transform error to ApiError
+    if (error.response) {
+      const data = error.response.data as { message?: string; error?: string; details?: Record<string, unknown> }
+      throw new ApiError(
+        data?.message || error.message || 'An error occurred',
+        error.response.status,
+        data?.error,
+        data?.details
+      )
+    } else if (error.request) {
+      throw new ApiError('Network error - please check your connection', 0, 'NETWORK_ERROR')
+    } else {
+      throw new ApiError(error.message || 'Request failed', 0, 'REQUEST_ERROR')
+    }
+  }
+)
+
+// Extend axios config type for metadata
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    metadata?: { startTime: Date }
+    _retryCount?: number
+  }
+}
 
 // Assets API
 export const assetsApi = {

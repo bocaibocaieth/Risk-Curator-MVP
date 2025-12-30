@@ -1,36 +1,81 @@
 """Price and TVL data services."""
 
 import logging
+import threading
 import httpx
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 from decimal import Decimal
 from datetime import datetime
+from collections import OrderedDict
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 
+class LRUCache:
+    """Thread-safe LRU cache with TTL support."""
+
+    def __init__(self, max_size: int = 1000, ttl_seconds: int = 300):
+        self._cache: OrderedDict[str, Tuple[Decimal, float]] = OrderedDict()
+        self._max_size = max_size
+        self._ttl = ttl_seconds
+        self._lock = threading.RLock()
+
+    def get(self, key: str) -> Optional[Decimal]:
+        """Get value from cache if exists and not expired."""
+        with self._lock:
+            if key not in self._cache:
+                return None
+
+            value, timestamp = self._cache[key]
+            if datetime.now().timestamp() - timestamp > self._ttl:
+                # Expired, remove and return None
+                del self._cache[key]
+                return None
+
+            # Move to end (most recently used)
+            self._cache.move_to_end(key)
+            return value
+
+    def set(self, key: str, value: Decimal) -> None:
+        """Set value in cache with current timestamp."""
+        with self._lock:
+            # Remove oldest if at capacity
+            if len(self._cache) >= self._max_size and key not in self._cache:
+                self._cache.popitem(last=False)
+
+            self._cache[key] = (value, datetime.now().timestamp())
+            self._cache.move_to_end(key)
+
+    def clear(self) -> None:
+        """Clear all cache entries."""
+        with self._lock:
+            self._cache.clear()
+
+    def size(self) -> int:
+        """Get current cache size."""
+        with self._lock:
+            return len(self._cache)
+
+
 class PriceService:
     """Price data service with CoinGecko and DeFiLlama integration."""
+
+    # Shared cache instance for all PriceService instances
+    _cache = LRUCache(max_size=1000, ttl_seconds=300)  # 5 minutes TTL
 
     def __init__(self):
         self.coingecko_base = "https://api.coingecko.com/api/v3"
         self.defillama_base = "https://coins.llama.fi"
-        self._cache: Dict[str, tuple] = {}  # Simple in-memory cache
-        self._cache_ttl = 60  # seconds
 
     def _get_cached(self, key: str) -> Optional[Decimal]:
         """Get value from cache if not expired."""
-        if key in self._cache:
-            price, timestamp = self._cache[key]
-            if datetime.now().timestamp() - timestamp < self._cache_ttl:
-                return price
-        return None
+        return self._cache.get(key)
 
     def _set_cached(self, key: str, price: Decimal) -> None:
         """Set value in cache."""
-        self._cache[key] = (price, datetime.now().timestamp())
+        self._cache.set(key, price)
 
     async def get_price_coingecko(self, coingecko_id: str) -> Optional[Decimal]:
         """Fetch price from CoinGecko API."""

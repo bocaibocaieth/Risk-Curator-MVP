@@ -2,10 +2,10 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload
 
 from app.database import get_db
 from app.models import Asset, Protocol, AlertConfig, AlertHistory
@@ -18,6 +18,9 @@ from app.schemas.alert import (
     AlertHistoryListResponse,
     AlertTestRequest,
 )
+from app.exceptions import NotFoundError, ValidationError, ExternalServiceError
+from app.dependencies import get_telegram_service
+from app.services.alert_service import TelegramService
 
 router = APIRouter()
 
@@ -71,7 +74,7 @@ async def create_alert_config(
             select(Asset).where(Asset.id == data.asset_id)
         )
         if not result.scalar_one_or_none():
-            raise HTTPException(status_code=404, detail="Asset not found")
+            raise NotFoundError("Asset", data.asset_id)
 
     # Validate protocol if provided
     if data.protocol_id:
@@ -79,7 +82,7 @@ async def create_alert_config(
             select(Protocol).where(Protocol.id == data.protocol_id)
         )
         if not result.scalar_one_or_none():
-            raise HTTPException(status_code=404, detail="Protocol not found")
+            raise NotFoundError("Protocol", data.protocol_id)
 
     config = AlertConfig(
         name=data.name,
@@ -107,15 +110,15 @@ async def get_alert_config(
     result = await db.execute(
         select(AlertConfig)
         .options(
-            selectinload(AlertConfig.asset),
-            selectinload(AlertConfig.protocol),
+            joinedload(AlertConfig.asset),
+            joinedload(AlertConfig.protocol),
         )
         .where(AlertConfig.id == config_id)
     )
     config = result.scalar_one_or_none()
 
     if not config:
-        raise HTTPException(status_code=404, detail="Alert config not found")
+        raise NotFoundError("AlertConfig", config_id)
 
     response = AlertConfigResponse.model_validate(config)
     if config.asset:
@@ -139,7 +142,7 @@ async def update_alert_config(
     config = result.scalar_one_or_none()
 
     if not config:
-        raise HTTPException(status_code=404, detail="Alert config not found")
+        raise NotFoundError("AlertConfig", config_id)
 
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
@@ -163,7 +166,7 @@ async def delete_alert_config(
     config = result.scalar_one_or_none()
 
     if not config:
-        raise HTTPException(status_code=404, detail="Alert config not found")
+        raise NotFoundError("AlertConfig", config_id)
 
     await db.delete(config)
 
@@ -173,6 +176,7 @@ async def test_alert(
     config_id: int,
     data: AlertTestRequest = AlertTestRequest(),
     db: AsyncSession = Depends(get_db),
+    telegram: TelegramService = Depends(get_telegram_service),
 ):
     """Test an alert configuration by sending a test message."""
     result = await db.execute(
@@ -181,18 +185,11 @@ async def test_alert(
     config = result.scalar_one_or_none()
 
     if not config:
-        raise HTTPException(status_code=404, detail="Alert config not found")
+        raise NotFoundError("AlertConfig", config_id)
 
     if not config.telegram_chat_id:
-        raise HTTPException(
-            status_code=400,
-            detail="No Telegram chat ID configured",
-        )
+        raise ValidationError("No Telegram chat ID configured", field="telegram_chat_id")
 
-    # Import here to avoid circular imports
-    from app.services.alert_service import TelegramService
-
-    telegram = TelegramService()
     success = await telegram.send_alert(
         severity="low",
         title=f"Test Alert: {config.name}",
@@ -201,10 +198,7 @@ async def test_alert(
     )
 
     if not success:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to send test alert. Check Telegram configuration.",
-        )
+        raise ExternalServiceError("Telegram", "Failed to send test alert")
 
     return {"status": "success", "message": "Test alert sent successfully"}
 
@@ -266,7 +260,7 @@ async def acknowledge_alert(
     record = result.scalar_one_or_none()
 
     if not record:
-        raise HTTPException(status_code=404, detail="Alert history not found")
+        raise NotFoundError("AlertHistory", history_id)
 
     record.acknowledged = True
     await db.flush()
