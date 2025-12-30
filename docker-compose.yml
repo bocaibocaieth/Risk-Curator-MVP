@@ -1,0 +1,54 @@
+# Docker Compose for local development
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: risk-curator-db
+    environment:
+      POSTGRES_USER: risk_user
+      POSTGRES_PASSWORD: risk_password
+      POSTGRES_DB: risk_monitor
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U risk_user -d risk_monitor"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache (optional for MVP)
+  redis:
+    image: redis:7-alpine
+    container_name: risk-curator-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: risk-curator-backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://risk_user:risk_password@db:5432/risk_monitor
+      REDIS_URL: redis://redis:6379
+      DEBUG: "true"
+      CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend/app:/app/app:ro  # For development hot-reload
+
+volumes:
+  postgres_data:
+  redis_data:

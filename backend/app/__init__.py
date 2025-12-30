@@ -1,0 +1,3 @@
+"""DeFi Risk Curator MVP - Backend Application"""
+
+__version__ = "0.1.0"
